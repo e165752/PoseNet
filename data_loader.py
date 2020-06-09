@@ -11,6 +11,9 @@ def data_load(data_dir, img_width, img_height, seq_num, mean_t, std_t, align_R, 
 #pose_stats_filename = os.path.join(data_dir, 'pose_stats.txt') 
 #mean_t, std_t = np.loadtxt(pose_stats_filename)
 
+  imgs = []
+  poses = np.empty([0, 6], dtype = np.float32)
+
   for seq in seq_num:
 
     seq = '{0:02}'.format(seq)
@@ -19,9 +22,6 @@ def data_load(data_dir, img_width, img_height, seq_num, mean_t, std_t, align_R, 
     print(seq_dir)
     pose_filepath_list = glob.glob(seq_dir + '*.pose.txt')
     # pose = [np.loadtxt(pose_filepath).flatten()[:12] for pose_filepath in pose_filepath_list]
-
-    imgs = []
-    poses = np.empty([0, 6], dtype = np.float32)
 
     for pose_filepath in pose_filepath_list:
 
@@ -40,12 +40,7 @@ def data_load(data_dir, img_width, img_height, seq_num, mean_t, std_t, align_R, 
       pose = np.hstack((t, q)) # pose[x, y, z, q1, q2, q3]
       poses = np.append(poses, np.array([pose]), axis=0)
 
-      ### normalize translation
-      poses[:, :3] -= mean_t
-      poses[:, :3] /= std_t
-      ###
-
-      # img data
+      # image data
       # img_filepath = pose_filepath.replace('.pose.txt','.jpg')
       img_filepath = pose_filepath.replace('.pose.txt','.color.png')
       #print(pose_filepath)
@@ -53,6 +48,10 @@ def data_load(data_dir, img_width, img_height, seq_num, mean_t, std_t, align_R, 
       data = np.array(data, dtype=np.float32)
       # data = data / 255.0
       imgs.append(data)
+
+  ### normalize translation
+  poses[:, :3] -= mean_t
+  poses[:, :3] /= std_t
 
   return imgs, poses
 

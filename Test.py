@@ -61,7 +61,7 @@ def quaternion_angular_error(q1, q2):
 model_filename = 'posenet_model.json'
 json_string = open(os.path.join('save_checkpoint', model_filename)).read()
 model = model_from_json(json_string)
-checkpoint_path = '/home/komi/PoseNet/save_checkpoint/{}'.format(ckpt_filename)
+checkpoint_path = '/home/komi/master_thesis/PoseNet/save_checkpoint/{}'.format(ckpt_filename)
 model.load_weights(checkpoint_path)
 
 model_inputshape = model.input_shape
