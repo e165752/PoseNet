@@ -22,9 +22,10 @@ import math
 import transforms3d.quaternions as txq
 import numpy as np
 import os
+import sys
 
 data_dir = os.path.join('~', 'dataset', '7Scenes', 'chess')
-img_width, img_height = 320, 240 #1024, 768 -> 224, 224
+img_width, img_height = 160, 120 #1024, 768 -> 320, 240
 input_tensor = tf.keras.Input(shape=(img_height, img_width, 3))
 # include_top=Falseとすることで，全結合層を除いたResNet50をインポートする
 # weights=’imagenet’とすることで学習済みのResNet50が読み込める． weights=Noneだとランダムな初期値から始まる
@@ -87,16 +88,18 @@ def criterion_loss(sax, saq):
     pred_r = tf.slice(pred, [0, 3], [-1, 3])
     r_mae = r_mae(targ_r, pred_r)
 
-    loss = math.exp(-sax) * t_mae + sax + math.exp(saq) * r_mae + saq
+    loss = math.exp(-sax) * t_mae + sax + math.exp(-saq) * r_mae + saq
+
     return loss
   return loss_function
 
-def mean_absolute_error(targ, pred):
-  AE = tf.reduce_sum(tf.abs(tf.subtract(targ, pred)), axis=1)
+
+#def mean_absolute_error(targ, pred):
+#  AE = tf.reduce_sum(tf.abs(tf.subtract(targ, pred)), axis=1)
   # print(AE)
-  MAE = tf.divide(AE, targ.shape[1])
+#  MAE = tf.divide(AE, targ.shape[1])
   # print(MAE)
-  return MAE
+#  return MAE
 
 sax = 0.0
 saq = -3.0 #hyperparameter: beta
@@ -138,6 +141,7 @@ a = np.append(a, np.array([b]), axis=0)
 train_img = np.array(train_img).astype('float32')
 train_pose = np.array(train_pose).astype('float32')
 
+print(train_img.shape)
 
 #pred_a = model.predict(train_img[-3:])
 # pred_a = tf.convert_to_tensor(pred_a, dtype=tf.float32)
@@ -159,6 +163,30 @@ cp_callback = tf.keras.callbacks.ModelCheckpoint(
     checkpoint_path, verbose=1, save_weights_only=True, save_best_only=True,
     period=10)
 
+def error_of_metric_angle(targ_poses, pred_poses):
+  
+  t_criterion = lambda t_pred, t_gt: np.linalg.norm(t_pred - t_gt)
+  q_criterion = quaternion_angular_error
+
+  t_loss = np.asarray([t_criterion(p, t) for p, t in zip(pred_poses[:, :3],
+                                                       targ_poses[:, :3])])
+
+  q_loss = np.asarray([q_criterion(p, t) for p, t in zip(pred_poses[:, 3:],
+                                                       targ_poses[:, 3:])])
+  return t_loss, q_loss
+
+def quaternion_angular_error(q1, q2):
+  """
+  angular error between two quaternions
+  :param q1: (4, )
+  :param q2: (4, )
+  :return:
+  """
+  d = abs(np.dot(q1, q2))
+  d = min(1.0, max(-1.0, d))
+  theta = 2 * np.arccos(d) * 180 / np.pi
+  return theta
+
 ### call_back
 class DisplayCallBack(tf.keras.callbacks.Callback):
   # コンストラクタ
@@ -169,17 +197,20 @@ class DisplayCallBack(tf.keras.callbacks.Callback):
     self.epochs, self.samples, self.batch_size = None, None, None
 
   def on_epoch_end(self, epoch, logs={}):
-    # 最新情報の更新
-    #self.last_acc = logs.get('acc') if logs.get('acc') else 0.0
-    self.last_loss = logs.get('loss') if logs.get('loss') else 0.0
+    pred_poses = model.predict(train_img[::20, :, :, :], verbose=0)
+    t_loss, q_loss = error_of_metric_angle(train_pose[::20,:], pred_poses)
+
+    #tf.print(train_img[::20, :, :, :].shape, train_pose[::20,:].shape)
+    
+    tf.print('\nError in translation: median {:3.2f} m,  mean {:3.2f} m\n' \
+    'Error in rotation: median {:3.2f} degrees, mean {:3.2f} degree' \
+    .format(np.median(t_loss), np.mean(t_loss), np.median(q_loss), np.mean(q_loss)))
     
 
-    # 進捗表示
-    self.print_progress()
-### call_back
+loss_callback = DisplayCallBack() 
 
-
-model.fit(train_img, train_pose, epochs=600, batch_size=256, validation_split=0.3, verbose=1, callbacks = [cp_callback])#, loss_callback])
+#model.fit(train_img, train_pose, epochs=600, batch_size=256, validation_split=0.3, verbose=1, callbacks = [cp_callback, loss_callback])
+model.fit(train_img, train_pose, epochs=600, batch_size=128, validation_split=0.3, verbose=1, callbacks = [cp_callback, loss_callback])
 
 # sevenseansデータセットで学習させる(コードがうまくいってるかの検証，論文と比較)
 # 写真撮影して試す(全部三次元再構成できるところ)
