@@ -23,9 +23,11 @@ import transforms3d.quaternions as txq
 import numpy as np
 import os
 import sys
+import os.path as osp
+import pickle
 
 data_dir = os.path.join('~', 'dataset', '7Scenes', 'chess')
-img_width, img_height = 160, 120 #1024, 768 -> 320, 240
+img_width, img_height = 224, 224 #1024, 768 -> 320, 240 -> 160, 120
 input_tensor = tf.keras.Input(shape=(img_height, img_width, 3))
 # include_top=Falseとすることで，全結合層を除いたResNet50をインポートする
 # weights=’imagenet’とすることで学習済みのResNet50が読み込める． weights=Noneだとランダムな初期値から始まる
@@ -36,7 +38,7 @@ ResNet50 = tf.keras.applications.ResNet50(include_top=False, weights=None, input
 resnet_output_shape = ResNet50.output_shape[1:]
 print(resnet_output_shape)
 
-# resnet50の部分だけ誤差逆伝播しない，重み更新しない
+# resnet50の部分だけ誤差逆伝播しない，重み更新しない->False
 for layer in ResNet50.layers:
   layer.trainable = False
 
@@ -45,10 +47,12 @@ x = ResNet50.output
 x = AveragePooling2D((2, 2))(x)
 x = Flatten()(x)
 x = Dropout(0.5)(x)
-x = Dense(2048)(x)
-xyz = Dense(3)(x)
-wpqr = Dense(3)(x)
+x = Dense(2048, activation='linear')(x) # linear関数なので
+x = tf.keras.activations.relu(x) # 本家のコードでなぜかreluされている
+xyz = Dense(3, activation='linear')(x) # 同じくlinearに変更
+wpqr = Dense(3, activation='linear')(x) # こっちもlinearに変更
 pred = tf.concat([xyz, wpqr], 1)
+
 
 model = Model(inputs=ResNet50.input, outputs=pred)
 #model.summary()
@@ -87,9 +91,8 @@ def criterion_loss(sax, saq):
     targ_r = tf.slice(targ, [0, 3], [-1, 3])
     pred_r = tf.slice(pred, [0, 3], [-1, 3])
     r_mae = r_mae(targ_r, pred_r)
-
     loss = math.exp(-sax) * t_mae + sax + math.exp(-saq) * r_mae + saq
-
+#    loss = math.exp(-saq) * r_mae + saq
     return loss
   return loss_function
 
@@ -158,7 +161,7 @@ b = tf.random.uniform([3, 3])
 
 tf.concat([a, b], -1)
 
-checkpoint_path = "save_checkpoint/cp-{epoch:03d}-L{loss:.04f}.ckpt"
+checkpoint_path = "save_checkpoint/cp_{epoch:03d}_L{loss:.04f}.ckpt"
 cp_callback = tf.keras.callbacks.ModelCheckpoint(
     checkpoint_path, verbose=1, save_weights_only=True, save_best_only=True,
     period=10)
@@ -195,13 +198,48 @@ class DisplayCallBack(tf.keras.callbacks.Callback):
     self.now_batch, self.now_epoch = None, None
 
     self.epochs, self.samples, self.batch_size = None, None, None
+  
+  def qexp(self, q):
+    """
+    Applies the exponential map to q
+    :param q: (3,)
+    :return: (4,)
+    """
+    n = np.linalg.norm(q)
+    q = np.hstack((np.cos(n), np.sinc(n/np.pi)*q))
+    return q
 
   def on_epoch_end(self, epoch, logs={}):
-    pred_poses = model.predict(train_img[::20, :, :, :], verbose=0)
-    t_loss, q_loss = error_of_metric_angle(train_pose[::20,:], pred_poses)
+    output = model.predict(train_img[::20, :, :, :], verbose=0)
+    target = train_pose[::20,:]
 
     #tf.print(train_img[::20, :, :, :].shape, train_pose[::20,:].shape)
-    
+
+    ####
+    # normalize the predicted quaternions
+    tf.print(output.shape)
+    q = [self.qexp(p[3:]) for p in output]
+    output = np.hstack((output[:, :3], np.asarray(q)))
+    q = [self.qexp(p[3:]) for p in target]
+    target = np.hstack((target[:, :3], np.asarray(q)))
+    predict_result_filename = osp.join('predict_result', 'epoch_{0:03}.pkl'.format(epoch))
+    with open(predict_result_filename, 'wb') as f:
+        pickle.dump({'targ_poses': target, 'pred_poses': output}, f)
+    print('{:s} written'.format(predict_result_filename))
+
+    '''  
+    batch_idx = 1  
+    idx = [batch_idx]
+    idx = idx[len(idx) / 2]
+
+    # take the middle prediction
+    output[idx, :] = output[len(output)/2]
+    target[idx, :] = target[len(target)/2]
+    '''
+    ####
+
+    t_loss, q_loss = error_of_metric_angle(target, output)
+
     tf.print('\nError in translation: median {:3.2f} m,  mean {:3.2f} m\n' \
     'Error in rotation: median {:3.2f} degrees, mean {:3.2f} degree' \
     .format(np.median(t_loss), np.mean(t_loss), np.median(q_loss), np.mean(q_loss)))

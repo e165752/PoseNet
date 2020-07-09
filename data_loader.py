@@ -13,7 +13,6 @@ def data_load(data_dir, img_width, img_height, seq_num, mean_t, std_t, align_R, 
 
   imgs = []
   poses = np.empty([0, 6], dtype = np.float32)
-
   for seq in seq_num:
 
     seq = '{0:02}'.format(seq)
@@ -45,15 +44,32 @@ def data_load(data_dir, img_width, img_height, seq_num, mean_t, std_t, align_R, 
       img_filepath = pose_filepath.replace('.pose.txt','.color.png')
       #print(pose_filepath)
       data = Image.open(img_filepath).resize(size=(img_width, img_height)) #size=(1024,768)
+      data = data.resize((256, 256))
+      data = crop_center(data, 224, 224)
+#      data = (data - mean.reshape(1, 3, 1, 1)) / std.reshape(1, 3, 1, 1)
       data = np.array(data, dtype=np.float32)
       # data = data / 255.0
       imgs.append(data)
 
+  ### normalize img
+#  mean=np.array([0.485, 0.456, 0.406])
+#  std=np.array([0.229, 0.224, 0.225])
+  mean=np.array([5.009650708326967017e-01, 4.413125411911532625e-01, 4.458285283490354689e-01])
+  std=np.array([4.329720281018845096e-02, 5.278270383679337097e-02, 4.760929057962018374e-02])
+  std = np.sqrt(std)
+  imgs = ((imgs - mean.reshape(1, 1, 1, 3)) / std.reshape(1, 1, 1, 3))
   ### normalize translation
   poses[:, :3] -= mean_t
   poses[:, :3] /= std_t
 
   return imgs, poses
+
+def crop_center(pil_img, crop_width, crop_height):
+    img_width, img_height = pil_img.size
+    return pil_img.crop(((img_width - crop_width) // 2,
+                         (img_height - crop_height) // 2,
+                         (img_width + crop_width) // 2,
+                         (img_height + crop_height) // 2))
 
 
 def qlog(q):
