@@ -18,6 +18,8 @@ from data_loader import data_load, qlog
 from tensorflow.keras.models import Sequential, Model
 from tensorflow.keras.layers import Input, Flatten, Dense, Dropout, AveragePooling2D
 from tensorflow.keras import optimizers
+import tensorflow_addons as tfa
+
 import math
 import transforms3d.quaternions as txq
 import numpy as np
@@ -27,7 +29,7 @@ import os.path as osp
 import pickle
 
 data_dir = os.path.join('~', 'dataset', '7Scenes', 'chess')
-img_width, img_height = 224, 224 #1024, 768 -> 320, 240 -> 160, 120
+img_width, img_height = 256, 256 #1024, 768 -> 320, 240 -> 160, 120
 input_tensor = tf.keras.Input(shape=(img_height, img_width, 3))
 # include_top=Falseとすることで，全結合層を除いたResNet50をインポートする
 # weights=’imagenet’とすることで学習済みのResNet50が読み込める． weights=Noneだとランダムな初期値から始まる
@@ -46,9 +48,10 @@ x = ResNet50.output
 
 x = AveragePooling2D((2, 2))(x)
 x = Flatten()(x)
-x = Dropout(0.5)(x)
+#x = Dropout(0.5)(x)
 x = Dense(2048, activation='linear')(x) # linear関数なので
 x = tf.keras.activations.relu(x) # 本家のコードでなぜかreluされている
+x = Dropout(0.5)(x)
 xyz = Dense(3, activation='linear')(x) # 同じくlinearに変更
 wpqr = Dense(3, activation='linear')(x) # こっちもlinearに変更
 pred = tf.concat([xyz, wpqr], 1)
@@ -91,7 +94,12 @@ def criterion_loss(sax, saq):
     targ_r = tf.slice(targ, [0, 3], [-1, 3])
     pred_r = tf.slice(pred, [0, 3], [-1, 3])
     r_mae = r_mae(targ_r, pred_r)
+
+#    sess = tf.compat.v1.InteractiveSession()
+#    sess.run(tf.compat.v1.global_variables_initializer())
+
     loss = math.exp(-sax) * t_mae + sax + math.exp(-saq) * r_mae + saq
+#    loss_result = sess.run(loss)
 #    loss = math.exp(-saq) * r_mae + saq
     return loss
   return loss_function
@@ -104,14 +112,19 @@ def criterion_loss(sax, saq):
   # print(MAE)
 #  return MAE
 
+#sax = tf.Variable(0.0, trainable=True, dtype=tf.float32)
+#saq = tf.Variable(-3.0, trainable=True, dtype=tf.float32) #hyperparameter: beta
 sax = 0.0
-saq = -3.0 #hyperparameter: beta
+saq = -3.0
+#print('sax_type: {}'.format(type(sax)))
+#opt=tfa.optimizers.AdamW(learning_rate=1e-4, weight_decay=0.0005)
+#opt.minimize(criterion_loss, var_list=[sax,saq])
 
-model.compile(optimizer='adam',
+model.compile(optimizer=tfa.optimizers.AdamW(learning_rate=1e-4, weight_decay=0.0005),
               loss=criterion_loss(sax, saq),
               metrics=['accuracy'])
 
-seq_num = [1, 2, 3, 4]
+seq_num = [1, 2, 4, 6]
 for seq in seq_num:
     print('{0:02}'.format(seq))
 
@@ -248,7 +261,7 @@ class DisplayCallBack(tf.keras.callbacks.Callback):
 loss_callback = DisplayCallBack() 
 
 #model.fit(train_img, train_pose, epochs=600, batch_size=256, validation_split=0.3, verbose=1, callbacks = [cp_callback, loss_callback])
-model.fit(train_img, train_pose, epochs=600, batch_size=128, validation_split=0.3, verbose=1, callbacks = [cp_callback, loss_callback])
+model.fit(train_img, train_pose, epochs=700, batch_size=64, validation_split=0.3, verbose=1, callbacks = [cp_callback, loss_callback])
 
 # sevenseansデータセットで学習させる(コードがうまくいってるかの検証，論文と比較)
 # 写真撮影して試す(全部三次元再構成できるところ)
