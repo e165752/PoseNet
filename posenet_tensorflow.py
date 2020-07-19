@@ -77,7 +77,6 @@ tf.cast(tensor, tf.float16)
 mae = tf.keras.losses.MeanAbsoluteError()
 print(mae(tf.slice(tensor, [0, 0], [-1, 3]), tf.slice(tensor, [0, 3], [-1, 3])))
 
-
 def criterion_loss(sax, saq):
   def loss_function(targ, pred):
     # t_mae = mean_absolute_error(pred[:, :3], targ[:, :3])
@@ -95,12 +94,19 @@ def criterion_loss(sax, saq):
     pred_r = tf.slice(pred, [0, 3], [-1, 3])
     r_mae = r_mae(targ_r, pred_r)
 
-#    sess = tf.compat.v1.InteractiveSession()
-#    sess.run(tf.compat.v1.global_variables_initializer())
 
-    loss = math.exp(-sax) * t_mae + sax + math.exp(-saq) * r_mae + saq
-#    loss_result = sess.run(loss)
-#    loss = math.exp(-saq) * r_mae + saq
+    with tf.GradientTape(persistent=True) as tape:
+      loss = tf.math.exp(-sax) * t_mae + sax + tf.math.exp(-saq) * r_mae + saq
+    tape.gradient(loss, sax)
+    tape.gradient(loss, saq)
+    #tf.print('update: sax, saq = {}, {}'.format(sax.value(), saq.value()))
+
+    # loss = tf.math.exp(-sax) * t_mae + sax + tf.math.exp(-saq) * r_mae + saq
+    '''
+    sess = tf.compat.v1.InteractiveSession()
+    sess.run(tf.compat.v1.global_variables_initializer())
+    loss_result = sess.run(loss)
+    '''
     return loss
   return loss_function
 
@@ -112,10 +118,13 @@ def criterion_loss(sax, saq):
   # print(MAE)
 #  return MAE
 
-#sax = tf.Variable(0.0, trainable=True, dtype=tf.float32)
-#saq = tf.Variable(-3.0, trainable=True, dtype=tf.float32) #hyperparameter: beta
-sax = 0.0
-saq = -3.0
+#init_sax = 0.0
+#init_saq = -3.0
+
+sax = tf.Variable(0.0, trainable=True, name='sax', dtype=tf.float32)
+saq = tf.Variable(-3.0, trainable=True, name='saq', dtype=tf.float32) #hyperparameter: beta
+tf.print('init: sax, saq = {}, {}'.format(sax.value(), saq.value()))
+#tf.print(type(sax))
 #print('sax_type: {}'.format(type(sax)))
 #opt=tfa.optimizers.AdamW(learning_rate=1e-4, weight_decay=0.0005)
 #opt.minimize(criterion_loss, var_list=[sax,saq])
