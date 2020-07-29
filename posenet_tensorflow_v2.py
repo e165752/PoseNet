@@ -93,15 +93,15 @@ def criterion_loss(sax, saq):
     targ_r = tf.slice(targ, [0, 3], [-1, 3])
     pred_r = tf.slice(pred, [0, 3], [-1, 3])
     r_mae = r_mae(targ_r, pred_r)
-
+    '''
     with tf.GradientTape(persistent=True) as tape:
       loss = tf.math.exp(-sax) * t_mae + sax + tf.math.exp(-saq) * r_mae + saq
     tape.gradient(loss, sax)
     tape.gradient(loss, saq)
-
+    '''
     #tf.print('update: sax, saq = {}, {}'.format(sax.value(), saq.value()))
 
-    #loss = tf.math.exp(-sax) * t_mae + sax + tf.math.exp(-saq) * r_mae + saq
+    loss = tf.math.exp(-sax) * t_mae + sax + tf.math.exp(-saq) * r_mae + saq
     '''
     sess = tf.compat.v1.InteractiveSession()
     sess.run(tf.compat.v1.global_variables_initializer())
@@ -129,12 +129,16 @@ tf.print('init: sax, saq = {}, {}'.format(sax.value(), saq.value()))
 #opt=tfa.optimizers.AdamW(learning_rate=1e-4, weight_decay=0.0005)
 #opt.minimize(criterion_loss, var_list=[sax,saq])
 
-model.compile(optimizer=tfa.optimizers.AdamW(learning_rate=1e-4, weight_decay=0.0005),
-              loss=criterion_loss(sax, saq),
-              metrics=['accuracy'])
+#model.compile(optimizer=tfa.optimizers.AdamW(learning_rate=1e-4, weight_decay=0.0005),
+#              loss=criterion_loss(sax, saq),
+#              metrics=['accuracy'])
 
-seq_num = [1, 2, 4, 6]
-for seq in seq_num:
+
+
+train_seq_num = [1, 2, 4, 6]
+test_seq_num = [3]
+
+for seq in train_seq_num:
     print('{0:02}'.format(seq))
 
 #def qlog(q):
@@ -156,7 +160,9 @@ vo_stats[seq] = {'R': np.eye(3), 't': np.zeros(3), 's': 1}
 mean_t = np.zeros(3)  # optionally, use the ps dictionary to calc stats
 std_t = np.ones(3)
 
-train_img, train_pose = data_load(data_dir, img_width, img_height, seq_num, mean_t=mean_t, std_t=std_t, align_R=vo_stats[seq]['R'], align_t=vo_stats[seq]['t'], align_s=vo_stats[seq]['s'])
+train_img, train_pose = data_load(data_dir, img_width, img_height, train_seq_num, mean_t=mean_t, std_t=std_t, align_R=vo_stats[seq]['R'], align_t=vo_stats[seq]['t'], align_s=vo_stats[seq]['s'])
+
+test_img, test_pose = data_load(data_dir, img_width, img_height, test_seq_num, mean_t=mean_t, std_t=std_t, align_R=vo_stats[seq]['R'], align_t=vo_stats[seq]['t'], align_s=vo_stats[seq]['s'])
 
 a = np.empty([0, 6])
 b = [1, 2, 3, 4, 5, 6]
@@ -165,8 +171,9 @@ a = np.append(a, np.array([b]), axis=0)
 
 train_img = np.array(train_img).astype('float32')
 train_pose = np.array(train_pose).astype('float32')
+test_img = np.array(test_img).astype('float32')
+test_pose = np.array(test_pose).astype('float32')
 
-print(train_img.shape)
 
 #pred_a = model.predict(train_img[-3:])
 # pred_a = tf.convert_to_tensor(pred_a, dtype=tf.float32)
@@ -183,10 +190,12 @@ b = tf.random.uniform([3, 3])
 
 tf.concat([a, b], -1)
 
+'''
 checkpoint_path = "save_checkpoint/cp_{epoch:03d}_L{loss:.04f}.ckpt"
 cp_callback = tf.keras.callbacks.ModelCheckpoint(
     checkpoint_path, verbose=1, save_weights_only=True, save_best_only=True,
     period=10)
+'''
 
 def error_of_metric_angle(targ_poses, pred_poses):
   
@@ -232,14 +241,24 @@ class DisplayCallBack(tf.keras.callbacks.Callback):
     return q
 
   def on_epoch_end(self, epoch, logs={}):
-    output = model.predict(train_img[::20, :, :, :], verbose=0)
-    target = train_pose[::20,:]
+    #output = model.predict(train_img[::20, :, :, :], verbose=0)
+    #target = train_pose[::20,:]
 
+    output = model.predict(test_img[::20, :, :, :], verbose=0)
+    target = test_pose[::20,:]
+
+    '''
+    train_imgs_slice = train_img[::20, :, :, :]
+    target = train_pose[::20,:]
+    output = model(train_imgs_slice, training=False)
+    output = output.numpy()
+    print('output.shape: {}'.format(output.shape))
+    '''
     #tf.print(train_img[::20, :, :, :].shape, train_pose[::20,:].shape)
 
     ####
     # normalize the predicted quaternions
-    tf.print(output.shape)
+    #tf.print(output.shape)
     q = [self.qexp(p[3:]) for p in output]
     output = np.hstack((output[:, :3], np.asarray(q)))
     q = [self.qexp(p[3:]) for p in target]
@@ -249,7 +268,6 @@ class DisplayCallBack(tf.keras.callbacks.Callback):
         pickle.dump({'targ_poses': target, 'pred_poses': output}, f)
     print('{:s} written'.format(predict_result_filename))
 
-
     # un-normalize the predicted and target translations
     pose_m = np.zeros(3)  # optionally, use the ps dictionary to calc stats
     pose_s = np.ones(3)
@@ -257,7 +275,6 @@ class DisplayCallBack(tf.keras.callbacks.Callback):
     #pose_m = np.array([1.0000000, 1.0000000, 1.0000000])
     output[:, :3] = (output[:, :3] * pose_s) + pose_m
     target[:, :3] = (target[:, :3] * pose_s) + pose_m
-
     '''  
     batch_idx = 1  
     idx = [batch_idx]
@@ -271,11 +288,12 @@ class DisplayCallBack(tf.keras.callbacks.Callback):
 
     t_loss, q_loss = error_of_metric_angle(target, output)
 
-    tf.print('\nError in translation: median {:3.2f} m,  mean {:3.2f} m\n' \
+    tf.print('Test data\n' \
+    'Error in translation: median {:3.2f} m,  mean {:3.2f} m\n' \
     'Error in rotation: median {:3.2f} degrees, mean {:3.2f} degree' \
     .format(np.median(t_loss), np.mean(t_loss), np.median(q_loss), np.mean(q_loss)))
 
-    tf.print('sax, saq = {}, {}'.format(sax.value(), saq.value()))
+    #tf.print('sax, saq = {}, {}'.format(sax.value(), saq.value()))
 
   '''    
   def on_batch_end(self, batch, logs=None):
@@ -284,8 +302,109 @@ class DisplayCallBack(tf.keras.callbacks.Callback):
 loss_callback = DisplayCallBack() 
 
 #model.fit(train_img, train_pose, epochs=600, batch_size=256, validation_split=0.3, verbose=1, callbacks = [cp_callback, loss_callback])
-model.fit(train_img, train_pose, epochs=700, batch_size=64, validation_split=0.3, verbose=1, callbacks = [cp_callback, loss_callback])
+#model.fit(train_img, train_pose, epochs=700, batch_size=64, validation_split=0.3, verbose=1, callbacks = [cp_callback, loss_callback])
 
-# sevenseansデータセットで学習させる(コードがうまくいってるかの検証，論文と比較)
-# 写真撮影して試す(全部三次元再構成できるところ)
-# accuracyの定義を自分でしないといけないかも
+'''
+Data set
+'''
+train_ds = tf.data.Dataset.from_tensor_slices(
+    (train_img, train_pose)).batch(64)#.shuffle(1000)
+
+test_ds = tf.data.Dataset.from_tensor_slices(
+    (test_img, test_pose)).batch(64)
+
+print('train_ds: {}'.format(train_ds))
+#print('test_ds: {}'.format(test_ds))
+
+'''
+loss function and optimizer
+'''
+loss_object=criterion_loss(sax, saq)
+optimizer=tfa.optimizers.AdamW(learning_rate=1e-5, weight_decay=0.0005)
+
+
+'''
+loss, acc
+'''
+train_loss = tf.keras.metrics.Mean(name='train_loss')
+train_accuracy = tf.keras.metrics.MeanSquaredError(name='mean_squared_error')
+#train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name='train_accuracy')
+
+test_loss = tf.keras.metrics.Mean(name='test_loss')
+test_accuracy = tf.keras.metrics.MeanSquaredError(name='mean_squared_error')
+#test_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name='test_accuracy')
+
+
+@tf.function
+def train_step(images, labels):
+  with tf.GradientTape() as tape:
+    # training=True is only needed if there are layers with different
+    # behavior during training versus inference (e.g. Dropout).
+    predictions = model(images, training=True)
+    loss = loss_object(labels, predictions)
+  param = model.trainable_variables
+  param.extend([sax, saq])
+  #print(param)
+  #print('model.trainable_variables_len: {}'.format(len(model.trainable_variables)))
+  #print('param_len{}: '.format(len(param)))
+
+  gradients = tape.gradient(loss, param)
+  optimizer.apply_gradients(zip(gradients, param))
+
+  train_loss(loss)
+  train_accuracy(labels, predictions)
+  return param[-2:]
+
+
+@tf.function
+def test_step(images, labels):
+  # training=False is only needed if there are layers with different
+  # behavior during training versus inference (e.g. Dropout).
+  predictions = model(images, training=False)
+  t_loss = loss_object(labels, predictions)
+
+  test_loss(t_loss)
+  test_accuracy(labels, predictions)
+  return predictions
+
+EPOCHS = 700
+
+min_loss = float("inf")
+
+for epoch in range(EPOCHS):
+  # Reset the metrics at the start of the next epoch
+  train_loss.reset_states()
+  train_accuracy.reset_states()
+  test_loss.reset_states()
+  test_accuracy.reset_states()
+
+  for train_img, train_pose in train_ds:
+    param_sax, param_saq = train_step(train_img, train_pose)
+
+  #for test_images, test_labels in test_ds:
+  #  test_step(test_images, test_labels)
+
+  template = 'Epoch {}/{} - Loss: {}, Accuracy: {}, Test Loss: {}, Test Accuracy: {}'
+  print(template.format(epoch + 1,
+                        EPOCHS,
+                        train_loss.result(),
+                        train_accuracy.result(),# * 100,
+                        test_loss.result(),
+                        test_accuracy.result()))# * 100))
+  print('sax, saq = {}, {}'.format(param_sax, param_saq))
+
+  loss_callback.on_epoch_end(epoch)
+
+  '''
+  cp_callback.set_model(model)
+  logs = {}
+  logs['loss'] = train_loss.result()
+  cp_callback.on_epoch_end(epoch, logs=logs)
+  '''
+
+  if epoch % 10 == 0 and min_loss > train_loss.result():
+    min_loss = train_loss.result()
+    model.save_weights("save_checkpoint/cp{epoch:03d}_L{loss:.04f}.ckpt".format(epoch=epoch+1, loss=train_loss.result()))
+    print("Save: save_checkpoint/cp{epoch:03d}_L{loss:.04f}.ckpt".format(epoch=epoch+1, loss=train_loss.result()))
+
+  print('\n')
