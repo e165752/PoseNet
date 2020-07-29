@@ -19,7 +19,7 @@ def data_load(data_dir, img_width, img_height, seq_num, mean_t, std_t, align_R, 
   std = np.sqrt(std)
 
   for seq in seq_num:
-    imgs_seq = []
+    imgs_seq = np.empty([0, 256, 256, 3])
     seq = '{0:02}'.format(seq)
     # seq_dir = os.path.join("/content/gdrive/My Drive/dataset", "zemishitu_table", "sara_touki", "seq-%s" % seq, "")
     seq_dir = os.path.join("/home/komi/dataset", "7Scenes", "chess", "seq-%s" % seq, "")
@@ -58,16 +58,17 @@ def data_load(data_dir, img_width, img_height, seq_num, mean_t, std_t, align_R, 
 #      data = (data - mean.reshape(1, 3, 1, 1)) / std.reshape(1, 3, 1, 1)
       data = np.array(data, dtype=np.float32)
       data = data / 255.0
-      imgs_seq.append(data)
+      #imgs_seq.append(data)
+      imgs_seq = np.append(imgs_seq, np.array([data]), axis=0)
 
   ### normalize img
 #  imgs = tf.keras.applications.resnet.preprocess_input(imgs)
 
-#  mean = mean * 255
+    #mean = mean * 255
 #  imgs = ((imgs - mean.reshape(1, 1, 1, 3)))
 #  imgs = imgs[..., ::-1]
-    imgs_seq = ((imgs_seq - mean.reshape(1, 1, 1, 3)) / std.reshape(1, 1, 1, 3))
-    #imgs.append(imgs_seq)
+    imgs_seq = (imgs_seq - mean.reshape(1, 1, 1, 3)) / std.reshape(1, 1, 1, 3)
+    imgs_seq = imgs_seq[..., ::-1]
     imgs.extend(imgs_seq)
   imgs = np.array(imgs, dtype=np.float32)
   print('imgs_shape = {}'.format(imgs.shape))
