@@ -40,7 +40,7 @@ ResNet50 = tf.keras.applications.ResNet50(include_top=False, weights='imagenet',
 resnet_output_shape = ResNet50.output_shape[1:]
 print(resnet_output_shape)
 
-# resnet50の部分だけ誤差逆伝播しない，重み更新しない->False
+# resnet50の部分だけ誤差逆伝播しない，重み更新しない
 for layer in ResNet50.layers:
   layer.trainable = False
 
@@ -49,11 +49,12 @@ x = ResNet50.output
 x = AveragePooling2D((2, 2))(x)
 x = Flatten()(x)
 #x = Dropout(0.5)(x)
-x = Dense(2048, activation='linear')(x) # linear関数なので
-x = tf.keras.activations.relu(x) # 本家のコードでなぜかreluされている
+x = Dense(2048, activation='linear')(x)
+x = tf.keras.activations.relu(x)
 x = Dropout(0.5)(x)
-xyz = Dense(3, activation='linear')(x) # 同じくlinearに変更
-wpqr = Dense(3, activation='linear')(x) # こっちもlinearに変更
+# xyz,wpqrそれぞれで回帰
+xyz = Dense(3, activation='linear')(x)
+wpqr = Dense(3, activation='linear')(x)
 pred = tf.concat([xyz, wpqr], 1)
 
 
@@ -64,15 +65,6 @@ model = Model(inputs=ResNet50.input, outputs=pred)
 json_string = model.to_json()
 open(os.path.join('save_checkpoint','posenet_model.json'), 'w').write(json_string)
 
-tensor = tf.random.uniform([3, 6])
-
-tensor2 = tf.random.uniform([3, 6])
-
-tf.slice(tensor, [0, 0], [-1, 3])
-
-tf.slice(tensor, [0, 3], [-1, 3])
-
-tf.cast(tensor, tf.float16)
 
 mae = tf.keras.losses.MeanAbsoluteError()
 print(mae(tf.slice(tensor, [0, 0], [-1, 3]), tf.slice(tensor, [0, 3], [-1, 3])))
@@ -93,20 +85,11 @@ def criterion_loss(sax, saq):
     targ_r = tf.slice(targ, [0, 3], [-1, 3])
     pred_r = tf.slice(pred, [0, 3], [-1, 3])
     r_mae = r_mae(targ_r, pred_r)
-    '''
-    with tf.GradientTape(persistent=True) as tape:
-      loss = tf.math.exp(-sax) * t_mae + sax + tf.math.exp(-saq) * r_mae + saq
-    tape.gradient(loss, sax)
-    tape.gradient(loss, saq)
-    '''
+    
     #tf.print('update: sax, saq = {}, {}'.format(sax.value(), saq.value()))
 
     loss = tf.math.exp(-sax) * t_mae + sax + tf.math.exp(-saq) * r_mae + saq
-    '''
-    sess = tf.compat.v1.InteractiveSession()
-    sess.run(tf.compat.v1.global_variables_initializer())
-    loss_result = sess.run(loss)
-    '''
+
     return loss
   return loss_function
 
@@ -118,14 +101,14 @@ def criterion_loss(sax, saq):
   # print(MAE)
 #  return MAE
 
-#init_sax = 0.0
-#init_saq = -3.0
-
+#hyper parameter:
 sax = tf.Variable(0.0, trainable=True, name='sax', dtype=tf.float32)
-saq = tf.Variable(-3.0, trainable=True, name='saq', dtype=tf.float32) #hyperparameter: beta
+saq = tf.Variable(-3.0, trainable=True, name='saq', dtype=tf.float32)
 tf.print('init: sax, saq = {}, {}'.format(sax.value(), saq.value()))
 #tf.print(type(sax))
 #print('sax_type: {}'.format(type(sax)))
+
+
 #opt=tfa.optimizers.AdamW(learning_rate=1e-4, weight_decay=0.0005)
 #opt.minimize(criterion_loss, var_list=[sax,saq])
 
@@ -134,12 +117,8 @@ tf.print('init: sax, saq = {}, {}'.format(sax.value(), saq.value()))
 #              metrics=['accuracy'])
 
 
-
 train_seq_num = [1, 2, 4, 6]
 test_seq_num = [3]
-
-for seq in train_seq_num:
-    print('{0:02}'.format(seq))
 
 #def qlog(q):
 #  """
@@ -154,7 +133,6 @@ for seq in train_seq_num:
 #  return q
 
 vo_stats = {}
-#seq_num = [1, 2, 3, 4]
 vo_stats[seq] = {'R': np.eye(3), 't': np.zeros(3), 's': 1}
 
 mean_t = np.zeros(3)  # optionally, use the ps dictionary to calc stats
@@ -164,10 +142,10 @@ train_img, train_pose = data_load(data_dir, img_width, img_height, train_seq_num
 
 test_img, test_pose = data_load(data_dir, img_width, img_height, test_seq_num, mean_t=mean_t, std_t=std_t, align_R=vo_stats[seq]['R'], align_t=vo_stats[seq]['t'], align_s=vo_stats[seq]['s'])
 
-a = np.empty([0, 6])
-b = [1, 2, 3, 4, 5, 6]
-a = np.append(a, np.array([b]), axis=0)
-a = np.append(a, np.array([b]), axis=0)
+#a = np.empty([0, 6])
+#b = [1, 2, 3, 4, 5, 6]
+#a = np.append(a, np.array([b]), axis=0)
+#a = np.append(a, np.array([b]), axis=0)
 
 train_img = np.array(train_img).astype('float32')
 train_pose = np.array(train_pose).astype('float32')
@@ -221,7 +199,6 @@ def quaternion_angular_error(q1, q2):
   theta = 2 * np.arccos(d) * 180 / np.pi
   return theta
 
-### call_back
 class DisplayCallBack(tf.keras.callbacks.Callback):
   # コンストラクタ
   def __init__(self):
